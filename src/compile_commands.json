@@ -1,0 +1,8 @@
+[
+{
+  "directory": "/home/yiboy/Desktop/clang_exercise/clang_libraries_companion/slides/examples/yibo_project/src/build",
+  "command": "/home/frodo/public/ugls_lab-10.4.2/bin/c++ -D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -isystem /home/frodo/public/ugls_lab-10.4.2/packages/clang/include -isystem /usr/include/libxml2 -std=gnu++20 -fno-rtti -o CMakeFiles/tool.dir/main.cpp.o -c /home/yiboy/Desktop/clang_exercise/clang_libraries_companion/slides/examples/yibo_project/src/main.cpp",
+  "file": "/home/yiboy/Desktop/clang_exercise/clang_libraries_companion/slides/examples/yibo_project/src/main.cpp",
+  "output": "CMakeFiles/tool.dir/main.cpp.o"
+}
+]

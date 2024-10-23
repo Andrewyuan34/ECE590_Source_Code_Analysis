@@ -9,6 +9,7 @@
 #include <clang/Tooling/Tooling.h>
 #include <llvm/Support/CommandLine.h>
 #include "Diagnostic_Engine.h"
+#include <clang/Frontend/CompilerInstance.h>
 
 namespace ct = clang::tooling;
 namespace cam = clang::ast_matchers;
@@ -19,14 +20,24 @@ static lc::list<std::string> Checks(
     "checks", lc::desc("Specify checks to run (dead-stores, dead-code, uninit-vars, loop-inv)"), 
     lc::ZeroOrMore, // 指定接受0到多个值
     lc::value_desc("check"));
+static lc::OptionCategory optionCategory("Tool options");
+static lc::opt<bool> clAsIs("i", lc::desc("Implicit nodes"),
+  lc::cat(optionCategory));
+
 
 cam::dynamic::VariantMatcher getMatcher(const std::string &type) {
     using namespace cam;
     if (type == "dead-stores") {
-        return dynamic::VariantMatcher::SingleMatcher(varDecl(hasInitializer(expr().bind("deadStore")), isExpansionInMainFile()).bind("varDecl"));
-    } /*else if (type == "dead-code") {
-        return;
-    } else if (type == "uninit-vars") {
+        return dynamic::VariantMatcher::SingleMatcher(
+            varDecl(hasInitializer(expr().bind("deadStore")), isExpansionInMainFile()).bind("varDecl")
+        );
+    } else if (type == "dead-code") {
+        // 匹配函数声明，确保函数未被使用且位于主文件中
+        return dynamic::VariantMatcher::SingleMatcher(
+            functionDecl(isExpansionInMainFile()).bind("unusedFunc")
+        );
+    }
+    /* else if (type == "uninit-vars") {
         return;
     } else if (type == "loop-invariant") {
         return;
@@ -50,8 +61,16 @@ cam::dynamic::VariantMatcher traverse(clang::TraversalKind kind,
 
 
 struct MyMatchCallback : public cam::MatchFinder::MatchCallback {
-    MyMatchCallback() : count(0) {}
+    MyMatchCallback(clang::DiagnosticsEngine &diagEngine) 
+        : diagEngine(diagEngine), count(0) {}
+
     void run(const cam::MatchFinder::MatchResult& result) override;
+
+private:
+    // 封装的错误报告函数
+    void reportDeadStoreError(const clang::VarDecl *varDecl);
+
+    clang::DiagnosticsEngine &diagEngine; // DiagnosticsEngine 成员变量
     unsigned count;
 };
 
@@ -62,65 +81,78 @@ void MyMatchCallback::run(const cam::MatchFinder::MatchResult& result) {
         std::string s(varDecl->getQualifiedNameAsString());
         llvm::outs() << std::format("dump for VarDecl {}:\n", s);
         varDecl->dump();
+        ++count;
+        llvm::outs() << std::format("Number of matches: {}\n", this->count);
 
-        // 获取 DiagnosticsEngine
-        if (result.Context) {
-            clang::DiagnosticsEngine &diagEngine = result.Context->getDiagnostics();
-
-            // 创建诊断ID，用于报告警告或错误
-            unsigned diagID = diagEngine.getCustomDiagID(clang::DiagnosticsEngine::Error, 
-                                                         "Dead store detected: variable %0 is assigned but never used");
-
-            // 报告错误，%0 表示第一个参数，会替换为变量名
-            diagEngine.Report(varDecl->getLocation(), diagID) << varDecl->getName();
-        }
+        // 调用封装的错误报告函数
+        reportDeadStoreError(varDecl);
+    }
+    else if(auto unusedFunc = result.Nodes.getNodeAs<clang::FunctionDecl>("unusedFunc")) {
+        std::string s(unusedFunc->getQualifiedNameAsString());
+        llvm::outs() << std::format("dump for FunctionDecl {}:\n", s);
+        unusedFunc->dump();
+        ++count;
+        llvm::outs() << std::format("Number of matches: {}\n", this->count);
+    }
+    else {
+        llvm::outs() << "No match found\n";
     }
 }
+
+// 封装的错误报告函数
+void MyMatchCallback::reportDeadStoreError(const clang::VarDecl *varDecl) {
+    // 创建诊断ID，用于报告错误
+    unsigned diagID = diagEngine.getCustomDiagID(clang::DiagnosticsEngine::Error, 
+                                                 "Dead store detected: variable %0 is assigned but never used");
+
+    // 报告错误，%0 表示第一个参数，会替换为变量名
+    diagEngine.Report(varDecl->getLocation(), diagID) << varDecl->getName();
+}
+
 
 // 自定义的 ASTConsumer
 class MyASTConsumer : public clang::ASTConsumer {
 public:
-    explicit MyASTConsumer(MatchFinder &Finder) : Finder(Finder) {}
+    explicit MyASTConsumer(cam::MatchFinder* Finder) : Finder(Finder) {}
 
     // 这个方法在每个翻译单元结束时被调用
     void HandleTranslationUnit(clang::ASTContext &Context) override {
-        Finder.matchAST(Context);
+        Finder->matchAST(Context);
     }
 
 private:
-    MatchFinder &Finder;
+    cam::MatchFinder* Finder;
 };
 
 // 定义自定义的 ASTFrontendAction
 class MyFrontendAction : public clang::ASTFrontendAction {
 public:
-    MyFrontendAction(CustomDiagnosticEngine &diagEngine) : diagEngine(diagEngine) {}
+    MyFrontendAction() 
+        : matchFinder(std::make_unique<cam::MatchFinder>()){}
 
     std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &CI, llvm::StringRef file) override {
-        matchCallback = std::make_unique<MyMatchCallback>(diagEngine);
-        auto matchFinder = std::make_unique<cam::MatchFinder>();
+        matchCallback = std::make_unique<MyMatchCallback>(CI.getDiagnostics());
 
+        // 添加 matchers
         for (const auto &check : Checks) {
-            matchFinder->addDynamicMatcher(*traverse(
-                clAsIs ? clang::TK_AsIs : clang::TK_IgnoreUnlessSpelledInSource, getMatcher(check)).getSingleMatcher(),
-                matchCallback.get());
+            matchFinder->addDynamicMatcher(
+                *traverse(clAsIs ? clang::TK_AsIs : clang::TK_IgnoreUnlessSpelledInSource, getMatcher(check)).getSingleMatcher(),
+                matchCallback.get()
+            );
         }
 
-        return std::make_unique<MyASTConsumer>(matchFinder);
+        // 使用指针传递给 MyASTConsumer
+        return std::make_unique<MyASTConsumer>(matchFinder.get());
     }
 
-    void EndSourceFileAction() override {
-        llvm::outs() << std::format("Number of matches: {}\n", matchCallback->getCount());
-    }
+    void EndSourceFileAction() override {}
 
 private:
-    std::unique_ptr<MyMatchCallback> matchCallback;
-    CustomDiagnosticEngine &diagEngine; // 使用自定义诊断引擎
+    std::unique_ptr<MyMatchCallback> matchCallback;  // 动态内存存储 MyMatchCallback
+    std::unique_ptr<cam::MatchFinder> matchFinder; // 动态内存存储 matchFinder
 };
 
-static lc::OptionCategory optionCategory("Tool options");
-static lc::opt<bool> clAsIs("i", lc::desc("Implicit nodes"),
-  lc::cat(optionCategory));
+
 
 int main(int argc, const char **argv) {
 	auto optParser = ct::CommonOptionsParser::create(argc, argv, optionCategory);
@@ -131,35 +163,10 @@ int main(int argc, const char **argv) {
 	}
 
 	ct::ClangTool tool(optParser->getCompilations(), optParser->getSourcePathList());
-
-	MyMatchCallback matchCallback;
-	cam::MatchFinder matchFinder;
-    
-    CustomDiagnosticEngine diagEngine;
-    // 设置诊断消费者
     
     assert(Checks.size() > 0);
 
-    for(auto&& check : Checks)  {
-		matchFinder.addDynamicMatcher(*traverse(
-		                clAsIs ? clang::TK_AsIs : clang::TK_IgnoreUnlessSpelledInSource,
-		                getMatcher(check)).getSingleMatcher(), &matchCallback);
-	}
-
-    int status = tool.run(ct::newFrontendActionFactory<MyFrontendAction>(diagEngine).get());
-
-    // 输出匹配结果
-    llvm::outs() << std::format("Number of matches: {}\n", matchCallback.count);
-
-    // 输出错误信息统计
-    llvm::outs() << std::format("Number of errors: {}\n", diagEngine.getErrorCount());
-    llvm::outs() << "Error messages:\n";
-    for (const auto& message : diagEngine.getErrorMessages()) {
-        llvm::outs() << message << "\n";
-    }
-
-	llvm::outs() << std::format("number of matches: {}\n",
-	  matchCallback.count);
+    int status = tool.run(ct::newFrontendActionFactory<MyFrontendAction>().get());
 	return !status ? 0 : 1;
 }
 
@@ -182,4 +189,15 @@ HandleDiagnostic方法中，根据诊断信息的级别（Error，Warning，Fata
 目前的思路是在MyFrontendAction类中创建一个CustomDiagnosticEngine的实例，然后在CreateASTConsumer方法中将这个实例传递给MyASTConsumer类。
 之后在MyASTConsumer类中调用HandleTranslationUnit方法时，将CustomDiagnosticEngine实例传递给MatchFinder类，但不确定这种思路是否行的通。
 如果不行的话，感觉也别注册了直接在里创建一个CustomDiagnosticEngine实例就行了。
+
+10.23更新：
+调试好了已有的框架。
+1. 关于diagnosticengine的部分，Now try to solve it by using the default setting through FrontendAction class instead of override the HandleDiagnostic method.
+And the reason behind this is because the HandleDiagnostic method is not called after overriding(bugs need to be fixed) and the default setting is enough for the diagnostic engine.
+2. And i think its preety important to continue using FrontendAction to access ASTMatcher because u could access CompilerInstance at the same time.
+3. It seems to be good for now to have the right way setting up getMatcher and traverse function.
+Next Setp:
+1. Try to complete the MyMatchCallback by creating a new file to clarify the structure of the callback function.
+2. Customize the error message function.
+
 */

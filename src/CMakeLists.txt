@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.14)
 project(ast_matcher_5 LANGUAGES CXX C)
 
 # 设置 CMAKE_MODULE_PATH 指向包含 FindClangFoo.cmake 的目录
-set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../../cmake" ${CMAKE_MODULE_PATH})
+set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../cmake" ${CMAKE_MODULE_PATH})
 
 include(CheckCXXCompilerFlag)
 include(Sanitizers)

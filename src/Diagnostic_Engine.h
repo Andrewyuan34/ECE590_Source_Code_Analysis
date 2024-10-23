@@ -1,71 +1,55 @@
+#include <format>
+#include <map>
+#include <string>
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/SourceLocation.h>
 #include <clang/Basic/SourceManager.h>
-#include <clang/Frontend/CompilerInstance.h>
-#include <clang/Frontend/TextDiagnosticPrinter.h>
-#include <llvm/Support/raw_ostream.h>
-#include <string>
-#include <unordered_map>
-#include <vector>
-#include <format>
+#include <clang/Frontend/FrontendAction.h>
+#include <clang/Frontend/FrontendActions.h>
+#include <clang/Tooling/CommonOptionsParser.h>
+#include <clang/Tooling/Tooling.h>
+#include <llvm/Support/CommandLine.h>
 
-class CustomDiagnosticEngine : public clang::DiagnosticConsumer {
+
+namespace ct = clang::tooling;
+
+std::string locationToString(const clang::SourceManager& sourceManager,
+  clang::SourceLocation sourceLoc) {
+	return std::format("{}:{}:{}",
+	  std::string(sourceManager.getFilename(sourceLoc)),
+	  sourceManager.getSpellingLineNumber(sourceLoc),
+	  sourceManager.getSpellingColumnNumber(sourceLoc));
+}
+
+std::string levelToString(clang::DiagnosticsEngine::Level level) {
+	const std::map<clang::DiagnosticsEngine::Level, std::string> lut{
+	  {clang::DiagnosticsEngine::Level::Error, "error"},
+	  {clang::DiagnosticsEngine::Level::Fatal, "fatal error"},
+	};
+	auto i = lut.find(level);
+	return i != lut.end() ? i->second : "unknown";
+}
+
+class MyDiagnosticConsumer : public clang::DiagnosticConsumer {
 public:
-    CustomDiagnosticEngine() : errorCount(0), warningCount(0) {}
-
-    // Override the HandleDiagnostic method to capture diagnostic information (only error and warning counts)
-    void HandleDiagnostic(clang::DiagnosticsEngine::Level DiagLevel, const clang::Diagnostic &Info) final {
-        if (DiagLevel == clang::DiagnosticsEngine::Error || DiagLevel == clang::DiagnosticsEngine::Fatal) {
-            errorCount++;
-            std::string errorMessage = formatDiagnosticMessage(Info);
-            errorMessages.push_back(errorMessage);
-        } else if (DiagLevel == clang::DiagnosticsEngine::Warning) {
-            warningCount++;
-            std::string warningMessage = formatDiagnosticMessage(Info);
-            warningMessages.push_back(warningMessage);
-        }
-    }
-
-    // Function to get the number of errors encountered
-    unsigned getErrorCount() const {
-        return errorCount;
-    }
-
-    // Function to get the number of warnings encountered
-    unsigned getWarningCount() const {
-        return warningCount;
-    }
-
-    // Function to retrieve error messages
-    const std::vector<std::string>& getErrorMessages() const {
-        return errorMessages;
-    }
-
-    // Function to retrieve warning messages
-    const std::vector<std::string>& getWarningMessages() const {
-        return warningMessages;
-    }
-
+	MyDiagnosticConsumer() : errCount_(0) {}
+	void HandleDiagnostic(clang::DiagnosticsEngine::Level diagLevel,
+	  const clang::Diagnostic& info) override {
+		clang::SourceManager* sm = info.hasSourceManager() ?
+		  &info.getSourceManager() : nullptr;
+		if (diagLevel == clang::DiagnosticsEngine::Level::Error ||
+		  diagLevel == clang::DiagnosticsEngine::Level::Fatal) {
+			if (sm) {
+				llvm::errs() << std::format("{} at {}\n",
+				  levelToString(diagLevel), locationToString(*sm,
+				  info.getLocation()));
+				++errCount_;
+			} else {
+				llvm::errs() << std::format("{}\n", levelToString(diagLevel));
+			}
+		}
+	}
+	unsigned long getErrCount() const {return errCount_;}
 private:
-    unsigned errorCount;
-    unsigned warningCount;
-    std::vector<std::string> errorMessages;
-    std::vector<std::string> warningMessages;
-
-    // Helper function to format diagnostic messages
-    std::string formatDiagnosticMessage(const clang::Diagnostic &Info) {
-        llvm::SmallString<100> diagStr;
-        Info.FormatDiagnostic(diagStr);
-
-        clang::SourceLocation loc = Info.getLocation();
-        const clang::SourceManager &sourceMgr = Info.getSourceManager();
-        if (loc.isValid()) {
-            std::string fileName = sourceMgr.getFilename(loc).str();
-            unsigned line = sourceMgr.getSpellingLineNumber(loc);
-            unsigned col = sourceMgr.getSpellingColumnNumber(loc);
-            return std::format("{}:{}:{} - {}", fileName, line, col, diagStr.c_str());
-        } else {
-            return std::string(diagStr.c_str());
-        }
-    }
+	unsigned long errCount_;
 };

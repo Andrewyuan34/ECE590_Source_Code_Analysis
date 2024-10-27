@@ -10,60 +10,42 @@
 #include <llvm/Support/CommandLine.h>
 #include <clang/Frontend/CompilerInstance.h>
 #include "MatchCallback.h"
+#include "CheckStrategies.h"
+#include "DeadStoresCheck.h"
 
 namespace ct = clang::tooling;
 namespace cam = clang::ast_matchers;
 namespace lc = llvm::cl;
 
-// 定义命令行选项，接受 0 到多个值
+// Define command line options, accept multiple values
 static lc::list<std::string> Checks(
     "checks", lc::desc("Specify checks to run (dead-stores, dead-code, uninit-vars, loop-inv)"), 
-    lc::ZeroOrMore, // 指定接受0到多个值
+    lc::ZeroOrMore, // Set the number of values to be zero or more
     lc::value_desc("check"));
 static lc::OptionCategory optionCategory("Tool options");
 static lc::opt<bool> clAsIs("i", lc::desc("Implicit nodes"),
-  lc::cat(optionCategory));
+    lc::cat(optionCategory));
 
-
-cam::dynamic::VariantMatcher getMatcher(const std::string &type) {
-    using namespace cam;
-    if (type == "dead-stores") {
-        return dynamic::VariantMatcher::SingleMatcher(
-            varDecl(hasInitializer(expr().bind("deadStore")), isExpansionInMainFile()).bind("varDecl")
-        );
-    } else if (type == "dead-code") {
-        // 匹配函数声明，确保函数未被使用且位于主文件中
-        return dynamic::VariantMatcher::SingleMatcher(
-            functionDecl(isExpansionInMainFile()).bind("unusedFunc")
-        );
+std::unique_ptr<CheckStrategy> getStrategy(const std::string& type) {
+    if (type == "dead-stores"){
+        return std::make_unique<DeadStoresCheck>();
+    } else {
+        llvm::errs() << "Unknown matcher type: " << type << "\n";
+        return nullptr;
     }
-    /* else if (type == "uninit-vars") {
-        return;
-    } else if (type == "loop-invariant") {
-        return;
-    }*/
-    llvm::errs() << "Unknown matcher type: " << type << "\n";
-    return dynamic::VariantMatcher();
 }
 
 cam::dynamic::VariantMatcher traverse(clang::TraversalKind kind, cam::dynamic::VariantMatcher matcher) {
     using namespace cam;
     if (matcher.hasTypedMatcher<clang::Decl>()){return dynamic::VariantMatcher::SingleMatcher(traverse(kind, matcher.getTypedMatcher<clang::Decl>()));}
     else std::abort();
-    /*} else if(matcher.hasTypedMatcher<xxxxxxxxx>()) {
-        return cam::dynamic::VariantMatcher::SingleMatcher(traverse(kind, matcher.getTypedMatcher<xxxxxxxxxxxx>()));
-    } else if(matcher.hasTypedMatcher<xxxxxxxxxxxx>()) {
-        return cam::dynamic::VariantMatcher::SingleMatcher(traverse(kind, matcher.getTypedMatcher<xxxxxxxxxxx>()));
-    } */
-    
 }
 
-// 自定义的 ASTConsumer
 class MyASTConsumer : public clang::ASTConsumer {
 public:
     explicit MyASTConsumer(cam::MatchFinder* Finder) : Finder(Finder) {}
 
-    // 这个方法在每个翻译单元结束时被调用
+    // After the AST has been parsed completely, the HandleTranslationUnit method is called
     void HandleTranslationUnit(clang::ASTContext &Context) override {
         Finder->matchAST(Context);
     }
@@ -87,27 +69,40 @@ public:
             unsigned diagID = diagEngine.getCustomDiagID(clang::DiagnosticsEngine::Warning, 
                                                          "No checks specified. At least one check must be provided.");
             diagEngine.Report(diagID);
-            return std::make_unique<clang::ASTConsumer>();
+            return std::make_unique<clang::ASTConsumer>(); // Return an empty ASTConsumer, not sure if this is a best practice
         }
 
         // Add dynamic matchers for each check
-        for (const auto &check : Checks) {
+        /*for (const auto &check : Checks) {
             matchFinder->addDynamicMatcher(
                 *traverse(clAsIs ? clang::TK_AsIs : clang::TK_IgnoreUnlessSpelledInSource, getMatcher(check)).getSingleMatcher(),
                 matchCallback.get()
             );
+        }*/
+
+        for (const auto &check : Checks) {
+            auto strategy = getStrategy(check);
+            if (strategy) {
+                for (const auto& matcher : strategy->getMatchers()) {
+                    matchFinder->addDynamicMatcher(
+                        *traverse(clAsIs ? clang::TK_AsIs : clang::TK_IgnoreUnlessSpelledInSource, matcher).getSingleMatcher(),
+                        matchCallback.get()
+                    );
+                }
+            }
         }
+
 
         // Pass the MatchFinder to the ASTConsumer
         return std::make_unique<MyASTConsumer>(matchFinder.get());
     }
 
-    void EndSourceFileAction() override {}
+    //void EndSourceFileAction() override {}
 
 private:
     std::unique_ptr<myproject::MyMatchCallback> matchCallback;  
     std::unique_ptr<cam::MatchFinder> matchFinder; 
-
+};
 
 
 int main(int argc, const char **argv) {
@@ -157,5 +152,7 @@ Next Setp:
 10.27更新：
 1. separate the MatchCallback class out of the main.cpp file.
 2. Move the "Checks" checker logic to FrontendAction class by using diagnostic engine to report the error message.
+3. Add a new logic handling various checkers in the FrontendAction class by using Strategy Pattern. Basically, If want add a new checker, just need to add a new class inherited from CheckStrategy class and implement the getMatchers method.
+
 
 */

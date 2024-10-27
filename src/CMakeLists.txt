@@ -15,7 +15,19 @@ find_package(ClangFoo REQUIRED)
 include(CheckStdFormat)
 import_std_format()
 
+set(CMAKE_CXX_COMPILER "clang++")
+set(CMAKE_C_COMPILER "clang")
+
 list(APPEND all_targets tool)
 add_executable(tool)
 target_sources(tool PRIVATE main.cpp MatchCallback.cpp)
 target_link_libraries(tool PRIVATE ClangFoo::llvm ClangFoo::clangcpp)
+
+# 在 CMakeLists.txt 的末尾输出编译器选择
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    message(STATUS "Final Compiler Selection: Using Clang as the compiler.")
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    message(STATUS "Final Compiler Selection: Using GCC as the compiler.")
+else()
+    message(STATUS "Final Compiler Selection: Using an unsupported compiler.")
+endif()

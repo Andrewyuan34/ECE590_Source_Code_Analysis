@@ -8,8 +8,8 @@
 #include <clang/Tooling/CommonOptionsParser.h>
 #include <clang/Tooling/Tooling.h>
 #include <llvm/Support/CommandLine.h>
-#include "Diagnostic_Engine.h"
 #include <clang/Frontend/CompilerInstance.h>
+#include "MatchCallback.h"
 
 namespace ct = clang::tooling;
 namespace cam = clang::ast_matchers;
@@ -46,8 +46,7 @@ cam::dynamic::VariantMatcher getMatcher(const std::string &type) {
     return dynamic::VariantMatcher();
 }
 
-cam::dynamic::VariantMatcher traverse(clang::TraversalKind kind,
-  cam::dynamic::VariantMatcher matcher) {
+cam::dynamic::VariantMatcher traverse(clang::TraversalKind kind, cam::dynamic::VariantMatcher matcher) {
     using namespace cam;
     if (matcher.hasTypedMatcher<clang::Decl>()){return dynamic::VariantMatcher::SingleMatcher(traverse(kind, matcher.getTypedMatcher<clang::Decl>()));}
     else std::abort();
@@ -57,58 +56,7 @@ cam::dynamic::VariantMatcher traverse(clang::TraversalKind kind,
         return cam::dynamic::VariantMatcher::SingleMatcher(traverse(kind, matcher.getTypedMatcher<xxxxxxxxxxx>()));
     } */
     
-  }
-
-
-struct MyMatchCallback : public cam::MatchFinder::MatchCallback {
-    MyMatchCallback(clang::DiagnosticsEngine &diagEngine) 
-        : diagEngine(diagEngine), count(0) {}
-
-    void run(const cam::MatchFinder::MatchResult& result) override;
-
-private:
-    // 封装的错误报告函数
-    void reportDeadStoreError(const clang::VarDecl *varDecl);
-
-    clang::DiagnosticsEngine &diagEngine; // DiagnosticsEngine 成员变量
-    unsigned count;
-};
-
-void MyMatchCallback::run(const cam::MatchFinder::MatchResult& result) {
-    llvm::outs() << std::format("MATCH {}:\n", count);
-    
-    if (auto varDecl = result.Nodes.getNodeAs<clang::VarDecl>("varDecl")) {
-        std::string s(varDecl->getQualifiedNameAsString());
-        llvm::outs() << std::format("dump for VarDecl {}:\n", s);
-        varDecl->dump();
-        ++count;
-        llvm::outs() << std::format("Number of matches: {}\n", this->count);
-
-        // 调用封装的错误报告函数
-        reportDeadStoreError(varDecl);
-    }
-    else if(auto unusedFunc = result.Nodes.getNodeAs<clang::FunctionDecl>("unusedFunc")) {
-        std::string s(unusedFunc->getQualifiedNameAsString());
-        llvm::outs() << std::format("dump for FunctionDecl {}:\n", s);
-        unusedFunc->dump();
-        ++count;
-        llvm::outs() << std::format("Number of matches: {}\n", this->count);
-    }
-    else {
-        llvm::outs() << "No match found\n";
-    }
 }
-
-// 封装的错误报告函数
-void MyMatchCallback::reportDeadStoreError(const clang::VarDecl *varDecl) {
-    // 创建诊断ID，用于报告错误
-    unsigned diagID = diagEngine.getCustomDiagID(clang::DiagnosticsEngine::Error, 
-                                                 "Dead store detected: variable %0 is assigned but never used");
-
-    // 报告错误，%0 表示第一个参数，会替换为变量名
-    diagEngine.Report(varDecl->getLocation(), diagID) << varDecl->getName();
-}
-
 
 // 自定义的 ASTConsumer
 class MyASTConsumer : public clang::ASTConsumer {
@@ -124,16 +72,25 @@ private:
     cam::MatchFinder* Finder;
 };
 
-// 定义自定义的 ASTFrontendAction
+// Custom FrontendAction
 class MyFrontendAction : public clang::ASTFrontendAction {
 public:
     MyFrontendAction() 
         : matchFinder(std::make_unique<cam::MatchFinder>()){}
 
     std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &CI, llvm::StringRef file) override {
-        matchCallback = std::make_unique<MyMatchCallback>(CI.getDiagnostics());
+        clang::DiagnosticsEngine& diagEngine = CI.getDiagnostics();
+        matchCallback = std::make_unique<myproject::MyMatchCallback>(diagEngine);
 
-        // 添加 matchers
+        // Check the size of Checks
+        if (Checks.empty()) {
+            unsigned diagID = diagEngine.getCustomDiagID(clang::DiagnosticsEngine::Warning, 
+                                                         "No checks specified. At least one check must be provided.");
+            diagEngine.Report(diagID);
+            return std::make_unique<clang::ASTConsumer>();
+        }
+
+        // Add dynamic matchers for each check
         for (const auto &check : Checks) {
             matchFinder->addDynamicMatcher(
                 *traverse(clAsIs ? clang::TK_AsIs : clang::TK_IgnoreUnlessSpelledInSource, getMatcher(check)).getSingleMatcher(),
@@ -141,16 +98,15 @@ public:
             );
         }
 
-        // 使用指针传递给 MyASTConsumer
+        // Pass the MatchFinder to the ASTConsumer
         return std::make_unique<MyASTConsumer>(matchFinder.get());
     }
 
     void EndSourceFileAction() override {}
 
 private:
-    std::unique_ptr<MyMatchCallback> matchCallback;  // 动态内存存储 MyMatchCallback
-    std::unique_ptr<cam::MatchFinder> matchFinder; // 动态内存存储 matchFinder
-};
+    std::unique_ptr<myproject::MyMatchCallback> matchCallback;  
+    std::unique_ptr<cam::MatchFinder> matchFinder; 
 
 
 
@@ -163,8 +119,6 @@ int main(int argc, const char **argv) {
 	}
 
 	ct::ClangTool tool(optParser->getCompilations(), optParser->getSourcePathList());
-    
-    assert(Checks.size() > 0);
 
     int status = tool.run(ct::newFrontendActionFactory<MyFrontendAction>().get());
 	return !status ? 0 : 1;
@@ -194,10 +148,14 @@ HandleDiagnostic方法中，根据诊断信息的级别（Error，Warning，Fata
 调试好了已有的框架。
 1. 关于diagnosticengine的部分，Now try to solve it by using the default setting through FrontendAction class instead of override the HandleDiagnostic method.
 And the reason behind this is because the HandleDiagnostic method is not called after overriding(bugs need to be fixed) and the default setting is enough for the diagnostic engine.
-2. And i think its preety important to continue using FrontendAction to access ASTMatcher because u could access CompilerInstance at the same time.
+2. And i think its pretty important to continue using FrontendAction to access ASTMatcher because u could access CompilerInstance at the same time.
 3. It seems to be good for now to have the right way setting up getMatcher and traverse function.
 Next Setp:
 1. Try to complete the MyMatchCallback by creating a new file to clarify the structure of the callback function.
 2. Customize the error message function.
+
+10.27更新：
+1. separate the MatchCallback class out of the main.cpp file.
+2. Move the "Checks" checker logic to FrontendAction class by using diagnostic engine to report the error message.
 
 */

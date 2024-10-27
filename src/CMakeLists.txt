@@ -17,5 +17,5 @@ import_std_format()
 
 list(APPEND all_targets tool)
 add_executable(tool)
-target_sources(tool PRIVATE main.cpp)
+target_sources(tool PRIVATE main.cpp MatchCallback.cpp)
 target_link_libraries(tool PRIVATE ClangFoo::llvm ClangFoo::clangcpp)

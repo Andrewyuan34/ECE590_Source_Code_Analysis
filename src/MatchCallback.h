@@ -7,6 +7,7 @@
 #include <llvm/Support/raw_ostream.h>
 #include <format>
 #include <string>
+#include <unordered_set>
 
 namespace myproject {
 
@@ -15,11 +16,13 @@ public:
     explicit MyMatchCallback(clang::DiagnosticsEngine& diagEngine);
 
     void run(const clang::ast_matchers::MatchFinder::MatchResult& result) override;
+    bool AddCheck(const std::string& check);
 
 private:
     void reportDeadStoreError(const clang::VarDecl *varDecl);
     clang::DiagnosticsEngine& diagEngine;
     unsigned count;
+    std::unordered_set<std::string> checks;
 };
 
 } // namespace myproject

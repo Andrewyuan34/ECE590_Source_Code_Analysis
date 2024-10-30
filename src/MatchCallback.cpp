@@ -7,28 +7,22 @@ MyMatchCallback::MyMatchCallback(clang::DiagnosticsEngine &diagEngine)
     : diagEngine(diagEngine), count(0) {}
 
 void MyMatchCallback::run(const clang::ast_matchers::MatchFinder::MatchResult& result) {
-    llvm::outs() << std::format("MATCH {}:\n", count);
+    if(checks.find("dead-stores") != checks.end()) {
+        llvm::outs() << "dead-stores\n";
+    }else if(checks.find("unreachable-code") != checks.end()) {
+        llvm::outs() << "unreachable-code\n";
+    }else if(checks.find("uninitialized-variable") != checks.end()) {
+        llvm::outs() << "uninitialized-variable\n";
+    }else if(checks.find("loop-invariant") != checks.end()) {
+        llvm::outs() << "loop-invariant\n";
+    }else {
+        llvm::outs() << "No checks specified. At least one check must be provided.\n";
+    }
+}
 
-    if (auto varDecl = result.Nodes.getNodeAs<clang::VarDecl>("varDecl")) {
-        std::string s(varDecl->getQualifiedNameAsString());
-        llvm::outs() << std::format("dump for VarDecl {}:\n", s);
-        varDecl->dump();
-        ++count;
-        llvm::outs() << std::format("Number of matches: {}\n", this->count);
-
-        // 调用封装的错误报告函数
-        reportDeadStoreError(varDecl);
-    }
-    else if (auto unusedFunc = result.Nodes.getNodeAs<clang::FunctionDecl>("unusedFunc")) {
-        std::string s(unusedFunc->getQualifiedNameAsString());
-        llvm::outs() << std::format("dump for FunctionDecl {}:\n", s);
-        unusedFunc->dump();
-        ++count;
-        llvm::outs() << std::format("Number of matches: {}\n", this->count);
-    }
-    else {
-        llvm::outs() << "No match found\n";
-    }
+bool MyMatchCallback::AddCheck(const std::string& check) {
+    auto [iter, inserted] = checks.insert(check);
+    return inserted;
 }
 
 void MyMatchCallback::reportDeadStoreError(const clang::VarDecl *varDecl) {

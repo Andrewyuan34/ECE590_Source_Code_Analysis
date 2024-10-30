@@ -19,7 +19,7 @@ namespace lc = llvm::cl;
 
 // Define command line options, accept multiple values
 static lc::list<std::string> Checks(
-    "checks", lc::desc("Specify checks to run (dead-stores, dead-code, uninit-vars, loop-inv)"), 
+    "checks", lc::desc("Specify checks to run (dead-stores, unreachable-code, uninitialized-variable, loop-invariant)"), 
     lc::ZeroOrMore, // Set the number of values to be zero or more
     lc::value_desc("check"));
 static lc::OptionCategory optionCategory("Tool options");
@@ -29,7 +29,13 @@ static lc::opt<bool> clAsIs("i", lc::desc("Implicit nodes"),
 std::unique_ptr<CheckStrategy> getStrategy(const std::string& type) {
     if (type == "dead-stores"){
         return std::make_unique<DeadStoresCheck>();
-    } else {
+    } else if(type == "unreachable-code") {
+        return nullptr;
+    } else if(type == "uninitialized-variable") {
+        return nullptr;
+    } else if(type == "loop-invariant") {
+        return nullptr;
+    }else {
         llvm::errs() << "Unknown matcher type: " << type << "\n";
         return nullptr;
     }
@@ -37,8 +43,14 @@ std::unique_ptr<CheckStrategy> getStrategy(const std::string& type) {
 
 cam::dynamic::VariantMatcher traverse(clang::TraversalKind kind, cam::dynamic::VariantMatcher matcher) {
     using namespace cam;
-    if (matcher.hasTypedMatcher<clang::Decl>()){return dynamic::VariantMatcher::SingleMatcher(traverse(kind, matcher.getTypedMatcher<clang::Decl>()));}
-    else std::abort();
+    if (matcher.hasTypedMatcher<clang::Decl>()){
+        return dynamic::VariantMatcher::SingleMatcher(traverse(kind, matcher.getTypedMatcher<clang::Decl>()));
+    }else if (matcher.hasTypedMatcher<clang::Stmt>()) {
+        return dynamic::VariantMatcher::SingleMatcher(traverse(kind, matcher.getTypedMatcher<clang::Stmt>()));
+    }else{
+        llvm::errs() << "Cannot traverse the matcher. No known method to handle it\n";
+        return cam::dynamic::VariantMatcher(); 
+    }   
 }
 
 class MyASTConsumer : public clang::ASTConsumer {
@@ -46,9 +58,7 @@ public:
     explicit MyASTConsumer(cam::MatchFinder* Finder) : Finder(Finder) {}
 
     // After the AST has been parsed completely, the HandleTranslationUnit method is called
-    void HandleTranslationUnit(clang::ASTContext &Context) override {
-        Finder->matchAST(Context);
-    }
+    void HandleTranslationUnit(clang::ASTContext &Context) override { Finder->matchAST(Context);}
 
 private:
     cam::MatchFinder* Finder;
@@ -58,7 +68,7 @@ private:
 class MyFrontendAction : public clang::ASTFrontendAction {
 public:
     MyFrontendAction() 
-        : matchFinder(std::make_unique<cam::MatchFinder>()){}
+        : matchFinder(std::make_unique<cam::MatchFinder>()) {}
 
     std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &CI, llvm::StringRef file) override {
         clang::DiagnosticsEngine& diagEngine = CI.getDiagnostics();
@@ -90,8 +100,10 @@ public:
                     );
                 }
             }
+            
+            // Log the check and this check cannot go wrong the strategy is already checked. So this is only for log check when adding a "new" check
+            if(matchCallback->AddCheck(check)) llvm::outs() << "Added check: " << check << "\n";
         }
-
 
         // Pass the MatchFinder to the ASTConsumer
         return std::make_unique<MyASTConsumer>(matchFinder.get());
@@ -154,5 +166,7 @@ Next Setp:
 2. Move the "Checks" checker logic to FrontendAction class by using diagnostic engine to report the error message.
 3. Add a new logic handling various checkers in the FrontendAction class by using Strategy Pattern. Basically, If want add a new checker, just need to add a new class inherited from CheckStrategy class and implement the getMatchers method.
 
+10.30更新：
+1. Refine the old structure by changing the traverse function and adding new method AddCheck to MyMatchCallback class.
 
 */

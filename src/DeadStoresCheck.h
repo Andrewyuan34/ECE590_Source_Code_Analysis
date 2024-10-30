@@ -4,6 +4,7 @@
 
 class DeadStoresCheck : public CheckStrategy {
 public:
+    DeadStoresCheck(const std::string& name) : CheckStrategy(name) {}
     MatchersList getMatchers() const override {
         using namespace clang::ast_matchers;
         using cadv = clang::ast_matchers::dynamic::VariantMatcher;

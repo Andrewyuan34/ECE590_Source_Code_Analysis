@@ -7,7 +7,10 @@
 #include <llvm/Support/raw_ostream.h>
 #include <format>
 #include <string>
-#include <unordered_set>
+#include <unordered_map> 
+#include "CheckStrategies.h"
+#include <memory>
+
 
 namespace myproject {
 
@@ -16,13 +19,14 @@ public:
     explicit MyMatchCallback(clang::DiagnosticsEngine& diagEngine);
 
     void run(const clang::ast_matchers::MatchFinder::MatchResult& result) override;
-    bool AddCheck(const std::string& check);
+    bool AddCheck(std::unique_ptr<CheckStrategy>&& check);
 
 private:
     void reportDeadStoreError(const clang::VarDecl *varDecl);
     clang::DiagnosticsEngine& diagEngine;
     unsigned count;
-    std::unordered_set<std::string> checks;
+    //std::unordered_set<std::string> check_names;
+    std::unordered_map<std::string, std::unique_ptr<CheckStrategy>> checks; // 存储每个检查对象
 };
 
 } // namespace myproject

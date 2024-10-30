@@ -4,25 +4,24 @@
 namespace myproject {
 
 MyMatchCallback::MyMatchCallback(clang::DiagnosticsEngine &diagEngine)
-    : diagEngine(diagEngine), count(0) {}
+    : diagEngine(diagEngine), count(0), checks() {}
 
 void MyMatchCallback::run(const clang::ast_matchers::MatchFinder::MatchResult& result) {
-    if(checks.find("dead-stores") != checks.end()) {
-        llvm::outs() << "dead-stores\n";
-    }else if(checks.find("unreachable-code") != checks.end()) {
-        llvm::outs() << "unreachable-code\n";
-    }else if(checks.find("uninitialized-variable") != checks.end()) {
-        llvm::outs() << "uninitialized-variable\n";
-    }else if(checks.find("loop-invariant") != checks.end()) {
-        llvm::outs() << "loop-invariant\n";
-    }else {
-        llvm::outs() << "No checks specified. At least one check must be provided.\n";
+    for (auto&& [name, strategy] : checks) {
+        llvm::outs() << "Running check: " << name << "\n";
     }
 }
 
-bool MyMatchCallback::AddCheck(const std::string& check) {
-    auto [iter, inserted] = checks.insert(check);
-    return inserted;
+// Add a check to the callback
+bool MyMatchCallback::AddCheck(std::unique_ptr<CheckStrategy>&& check) {
+    const std::string& checkName = check->getName();
+    if (checks.find(checkName) != checks.end()) {
+        llvm::errs() << "Check already exists: " << checkName << "\n";
+        return false;
+    }
+
+    checks[checkName] = std::move(check);
+    return true;
 }
 
 void MyMatchCallback::reportDeadStoreError(const clang::VarDecl *varDecl) {

@@ -28,7 +28,7 @@ static lc::opt<bool> clAsIs("i", lc::desc("Implicit nodes"),
 
 std::unique_ptr<CheckStrategy> getStrategy(const std::string& type) {
     if (type == "dead-stores"){
-        return std::make_unique<DeadStoresCheck>();
+        return std::make_unique<DeadStoresCheck>("dead-stores");
     } else if(type == "unreachable-code") {
         return nullptr;
     } else if(type == "uninitialized-variable") {
@@ -99,10 +99,11 @@ public:
                         matchCallback.get()
                     );
                 }
+                if(matchCallback->AddCheck(std::move(strategy))) llvm::outs() << "Added check: " << check << "\n";
             }
             
             // Log the check and this check cannot go wrong the strategy is already checked. So this is only for log check when adding a "new" check
-            if(matchCallback->AddCheck(check)) llvm::outs() << "Added check: " << check << "\n";
+            //if(matchCallback->AddCheck(check)) llvm::outs() << "Added check: " << check << "\n";
         }
 
         // Pass the MatchFinder to the ASTConsumer
@@ -168,5 +169,6 @@ Next Setp:
 
 10.30更新：
 1. Refine the old structure by changing the traverse function and adding new method AddCheck to MyMatchCallback class.
+2. Add new logic to pass the checkers so that the detailed check logic is implemented in the check method of the CheckStrategy class.
 
 */

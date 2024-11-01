@@ -82,14 +82,6 @@ public:
             return std::make_unique<clang::ASTConsumer>(); // Return an empty ASTConsumer, not sure if this is a best practice
         }
 
-        // Add dynamic matchers for each check
-        /*for (const auto &check : Checks) {
-            matchFinder->addDynamicMatcher(
-                *traverse(clAsIs ? clang::TK_AsIs : clang::TK_IgnoreUnlessSpelledInSource, getMatcher(check)).getSingleMatcher(),
-                matchCallback.get()
-            );
-        }*/
-
         for (const auto &check : Checks) {
             auto strategy = getStrategy(check);
             if (strategy) {
@@ -171,4 +163,7 @@ Next Setp:
 1. Refine the old structure by changing the traverse function and adding new method AddCheck to MyMatchCallback class.
 2. Add new logic to pass the checkers so that the detailed check logic is implemented in the check method of the CheckStrategy class.
 
+10.31 update:
+1. Confirm the structure of the project and start to implement the check logic in the DeadStoresCheck class.
+2. Perform analysis on the CFG of the function and get the liveness information of each variable in the function.
 */

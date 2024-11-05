@@ -4,6 +4,71 @@
 #include <clang/Analysis/CFG.h>
 #include <clang/Analysis/AnalysisDeclContext.h>
 #include <clang/Analysis/Analyses/LiveVariables.h>
+#include "clang/AST/Attr.h"
+
+
+class DeadStoreObserver : public clang::LiveVariables::Observer {
+public:
+    const clang::ast_matchers::MatchFinder::MatchResult &result;
+    
+    DeadStoreObserver(const clang::ast_matchers::MatchFinder::MatchResult &r) 
+        : result(r) {}
+
+    void observeStmt(const clang::Stmt *S, const clang::CFGBlock *currentBlock,
+                     const clang::LiveVariables::LivenessValues &Live) override {
+
+        // Skip statements in macros.
+        if (S->getBeginLoc().isMacroID())
+            return;
+
+        // Only cover dead stores from regular assignments. ++/-- dead stores
+        // have never flagged a real bug.
+        if (const clang::BinaryOperator *B = llvm::dyn_cast<clang::BinaryOperator>(S)) {
+            if (!B->isAssignmentOp())
+                return; // Skip non-assignments.
+
+            if (const clang::DeclRefExpr *DR = llvm::dyn_cast<clang::DeclRefExpr>(B->getLHS())) {
+                if (const clang::VarDecl *VD = llvm::dyn_cast<clang::VarDecl>(DR->getDecl())) {
+
+                    // Special case: self-assignments. These are often used to suppress
+                    // "unused variable" compiler warnings.
+                    const clang::Expr *RHS = B->getRHS()->IgnoreParenCasts();
+                    if (const clang::DeclRefExpr *RhsDR = llvm::dyn_cast<clang::DeclRefExpr>(RHS)) {
+                        if (VD == llvm::dyn_cast<clang::VarDecl>(RhsDR->getDecl()))
+                            return; // Skip self-assignment
+                    }
+
+                    // Check if the variable declaration might be a dead store
+                    CheckVarDecl(VD, DR, Live, result);
+                }
+            }
+        }
+    }
+
+private:
+    void reportDeadStore(const clang::VarDecl *VD, const clang::Expr *Ex) const {
+        clang::SourceLocation Loc = Ex->getExprLoc();
+        clang::DiagnosticsEngine &Diag = result.Context->getDiagnostics();
+        unsigned DiagID = Diag.getCustomDiagID(clang::DiagnosticsEngine::Warning,
+                                               "Value stored to '%0' is never read");
+        Diag.Report(Loc, DiagID) << VD->getName();
+    }
+
+    void CheckVarDecl(const clang::VarDecl *VD, const clang::Expr *Ex,
+                      const clang::LiveVariables::LivenessValues &Live,
+                      const clang::ast_matchers::MatchFinder::MatchResult &result) const {
+        
+        if (!VD->hasLocalStorage())
+            return;
+        if (VD->getType()->getAs<clang::ReferenceType>())
+            return;
+
+        if (!Live.isLive(Live, VD) && !(VD->hasAttr<clang::UnusedAttr>())) {
+            reportDeadStore(VD, Ex);
+        }
+    }
+};
+
 
 class DeadStoresCheck : public CheckStrategy {
 public:
@@ -33,9 +98,9 @@ public:
         return matchers;
     }
 
-    std::optional<bool> check(const clang::ast_matchers::MatchFinder::MatchResult& result) override {
+    std::optional<bool> check(const clang::ast_matchers::MatchFinder::MatchResult& result) override { //在这种情况下，似乎只能查到，初始化后直接又被赋值的变量
         if(auto funcDecl = result.Nodes.getNodeAs<clang::FunctionDecl>("funcDecl")) {
-                        clang::ASTContext *astContext = result.Context;
+            clang::ASTContext *astContext = result.Context;
             clang::Stmt *funcBody = funcDecl->getBody();
             if (!funcBody) return false;
         
@@ -54,57 +119,32 @@ public:
             }
 
             // 构建 LiveVariables 分析器
-            clang::LiveVariables *liveVars = AC->getAnalysis<clang::LiveVariables>(); 
+            clang::LiveVariables* liveVars = AC->getAnalysis<clang::LiveVariables>(); 
 	        if (!liveVars) return false;
-            auto observer = std::make_unique<clang::LiveVariables::Observer>();
+            auto observer = std::make_unique<DeadStoreObserver>();
 	        assert(observer);
 	        liveVars->runOnAllBlocks(*observer);
-            /*auto livenessvalues = std::make_unique<clang::LiveVariables::LivenessValues>();
-            assert(livenessvalues);*/
-	        //liveVars->dumpBlockLiveness((funcDecl->getASTContext()).getSourceManager());
-
-            // 遍历 CFG 中的每个块，检查是否有死存储
-            for (const clang::CFGBlock *block : *cfg) {
-                for (auto &elem : *block) {
-                    // 获取 CFGStmt
-                    if (std::optional<clang::CFGStmt> cfgStmtOpt = elem.getAs<clang::CFGStmt>()) {
-                        const clang::CFGStmt &cfgStmt = *cfgStmtOpt;
-                        const clang::Stmt *stmt = cfgStmt.getStmt();
-                            // 检查赋值操作
-                            if (const clang::BinaryOperator *binOp = llvm::dyn_cast<clang::BinaryOperator>(stmt)) {
-                                // 只关注赋值操作
-                                if (binOp->isAssignmentOp()) {
-                                    // 获取 LHS（左值表达式）
-                                    if (const clang::DeclRefExpr *lhs = llvm::dyn_cast<clang::DeclRefExpr>(binOp->getLHS())) {
-                                        // 获取 VarDecl
-                                        if (const clang::VarDecl *varDecl = llvm::dyn_cast<clang::VarDecl>(lhs->getDecl())) {
-                                            // 检查变量在当前块的末尾是否活跃
-                                            if (!liveVars->isLive(block, varDecl)) {
-                                                llvm::outs() << "Dead store detected in function '"
-                                                             << funcDecl->getQualifiedNameAsString() << "' at "
-                                                             << varDecl->getLocation().printToString(*result.SourceManager)//这里的输出是定义的位置，而不是使用的位置
-                                                             << "\n";
-                                                llvm::outs() << "Variable name: " << varDecl->getNameAsString() << "\n";
-                                                if (varDecl->getType().getAsString() != "") {
-                                                    llvm::outs() << "Variable type: " << varDecl->getType().getAsString() << "\n";
-                                                }
-                                                llvm::outs() << "Assigned at: ";
-                                                binOp->getSourceRange().print(llvm::outs(), *result.SourceManager);
-                                                llvm::outs() << "\n";
-                                                llvm::outs() << "Statement: '";
-                                                binOp->printPretty(llvm::outs(), nullptr, clang::PrintingPolicy(astContext->getLangOpts()));
-                                                llvm::outs() << "\n";
-                                                //varDecl->getSourceRange().print(llvm::outs(), *result.SourceManager);
-                                                //lhs->printPretty(llvm::outs(), nullptr, clang::PrintingPolicy(astContext->getLangOpts()));
-                                            }
-                                        }
-                                    }
-                            }
-                        }
-                    }
-                }
-            }
         }   
         return true;
     }
 };
+
+/*
+So the essence of checking dead store is: In a funcion, you can only detect them when they have condition control flow otherwise the CFG will only generate 
+one block for the whole function.
+
+while loop will be sperate into three blocks in CFG, the first block is the condition block, the second block is the body block, the third block is the block that is
+used to jump back to the condition block. and if there is nested while loop exists, the CFG would do the same thing(dividing the while loop into three blocks).
+
+the for loop will be sperate into three blocks in CFG as well, the first block is the condition block, the second block is the body block, 
+the third block is the block that is only used to jump back to the condition block. Interestingly, the initialization of index will be placed one block before the condition block.
+
+the do while loop will be sperate into three blocks in CFG as well, the first block is the jump block(which doesnt mean anything), the second block is the loop body,
+the third block is the condition block.
+
+if else stmt will be sperate into two blocks in CFG, the first block is the if block body, the second block is the else block body.
+That's werid. It seems that they deal with else if stmt by subtituting the else block for its place.
+But whatever it is. Using if stmt definitely lead to extra block in CFG, which is what I wanna to see in this case.
+
+
+*/

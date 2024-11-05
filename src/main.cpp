@@ -166,4 +166,9 @@ Next Setp:
 10.31 update:
 1. Confirm the structure of the project and start to implement the check logic in the DeadStoresCheck class.
 2. Perform analysis on the CFG of the function and get the liveness information of each variable in the function.
+
+Next: Considering using thread pool to speed up the analysis process.
+
+11.4 update:
+1. Try inherit the clang::LiveVariables class and override the runOnAllBlocks method to perform the analysis on the CFG of the function.
 */

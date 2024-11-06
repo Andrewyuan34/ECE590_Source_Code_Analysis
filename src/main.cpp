@@ -171,4 +171,8 @@ Next: Considering using thread pool to speed up the analysis process.
 
 11.4 update:
 1. Try inherit the clang::LiveVariables class and override the runOnAllBlocks method to perform the analysis on the CFG of the function.
+
+11.5 update:
+1. Finish 80% of the DeadStoresCheck class and the DeadStoreObserver class. Need thorough testing to make sure the logic is correct.
+
 */

@@ -34,13 +34,5 @@ bool MyMatchCallback::AddCheck(std::unique_ptr<CheckStrategy>&& check) {
     return true;
 }
 
-void MyMatchCallback::reportDeadStoreError(const clang::VarDecl *varDecl) {
-    unsigned diagID = diagEngine.getCustomDiagID(
-        clang::DiagnosticsEngine::Error,
-        "Dead store detected: variable %0 is assigned but never used"
-    );
-
-    diagEngine.Report(varDecl->getLocation(), diagID) << varDecl->getName();
-}
 
 } // namespace myproject

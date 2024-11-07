@@ -20,9 +20,8 @@ public:
 
     void run(const clang::ast_matchers::MatchFinder::MatchResult& result) override;
     bool AddCheck(std::unique_ptr<CheckStrategy>&& check);
-
+    void onEndOfTranslationUnit() override;
 private:
-    void reportDeadStoreError(const clang::VarDecl *varDecl);
     clang::DiagnosticsEngine& diagEngine;
     unsigned count;
     //std::unordered_set<std::string> check_names;

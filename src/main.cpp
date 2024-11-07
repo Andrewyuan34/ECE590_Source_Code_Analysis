@@ -12,6 +12,7 @@
 #include "MatchCallback.h"
 #include "CheckStrategies.h"
 #include "DeadStoresCheck.h"
+#include "UnreachableCodeCheck.h"
 
 namespace ct = clang::tooling;
 namespace cam = clang::ast_matchers;
@@ -30,7 +31,7 @@ std::unique_ptr<CheckStrategy> getStrategy(const std::string& type) {
     if (type == "dead-stores"){
         return std::make_unique<DeadStoresCheck>("dead-stores");
     } else if(type == "unreachable-code") {
-        return nullptr;
+        return std::make_unique<UnreachableCodeCheck>("unreachable-code");
     } else if(type == "uninitialized-variable") {
         return nullptr;
     } else if(type == "loop-invariant") {
@@ -86,10 +87,12 @@ public:
             auto strategy = getStrategy(check);
             if (strategy) {
                 for (const auto& matcher : strategy->getMatchers()) {
-                    matchFinder->addDynamicMatcher(
+                    if(!matchFinder->addDynamicMatcher(
                         *traverse(clAsIs ? clang::TK_AsIs : clang::TK_IgnoreUnlessSpelledInSource, matcher).getSingleMatcher(),
                         matchCallback.get()
-                    );
+                    )) {
+                        llvm::errs() << "Error adding matcher: " << check << "\n";
+                    }
                 }
                 if(matchCallback->AddCheck(std::move(strategy))) llvm::outs() << "Added check: " << check << "\n";
             }
@@ -175,4 +178,6 @@ Next: Considering using thread pool to speed up the analysis process.
 11.5 update:
 1. Finish 80% of the DeadStoresCheck class and the DeadStoreObserver class. Need thorough testing to make sure the logic is correct.
 
+11.6 update:
+1. Creat a basic structure of UnreachableCodeCheck class and implement the check method.
 */

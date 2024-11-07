@@ -13,6 +13,7 @@ int foo() {
 int bar(int f) {
     int y = f;  // Uninitialized variable
     return y;
+    y = 10;
 }
 
 int doubleIt() {
@@ -20,6 +21,7 @@ int doubleIt() {
     x = 20;
     x = 30;
     return x * 2;
+    x  = 40;  // Dead store, as 'x' is assigned but never used
 }
 // Situation: No loop & no condition control flow in the function
 // Can I solve this situation by first examining the liveness info of the func. If the variable is not live at the end of the block, then it is a dead store.

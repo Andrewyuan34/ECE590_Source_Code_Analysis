@@ -14,6 +14,9 @@ int bar(int f) {
     int y = f;  // Uninitialized variable
     return y;
     y = 10;
+    while(y--) {
+        y = 20;
+    }
 }
 
 int doubleIt() {

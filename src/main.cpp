@@ -179,5 +179,5 @@ Next: Considering using thread pool to speed up the analysis process.
 1. Finish 80% of the DeadStoresCheck class and the DeadStoreObserver class. Need thorough testing to make sure the logic is correct.
 
 11.6 update:
-1. Creat a basic structure of UnreachableCodeCheck class and implement the check method.
+1. Create a basic structure of UnreachableCodeCheck class and implement the check method.
 */

@@ -25,8 +25,6 @@ void MyMatchCallback::run(const clang::ast_matchers::MatchFinder::MatchResult& r
     
     if(checks.find("loop-invariant") != checks.end()) {
         llvm::outs() << "loopinvariant is not found\n";
-    }else {
-        llvm::outs() << "Unknown matcher type\n";
     }
 }
 

@@ -180,4 +180,10 @@ Next: Considering using thread pool to speed up the analysis process.
 
 11.6 update:
 1. Create a basic structure of UnreachableCodeCheck class and implement the check method.
+
+11.7 update:
+1. Go further implementing the UnreachableCodeCheck class. Need more time to think about the logic of the check method and testing stuff.
+
+11.9 update:
+1. Use BFS to achieve the core algorithm of UnreachableCodeCheck class. Need to test the logic and make sure it works correctly.
 */

@@ -5,11 +5,8 @@ namespace myproject {
 MyMatchCallback::MyMatchCallback(clang::DiagnosticsEngine &diagEngine)
     : diagEngine(diagEngine), count(0), checks() {}
 
-void MyMatchCallback::run(const clang::ast_matchers::MatchFinder::MatchResult& result) {
-    /*for (auto&& [name, strategy] : checks) {
-        llvm::outs() << "Running check: " << name << "\n";
-    }*/
 
+void MyMatchCallback::run(const clang::ast_matchers::MatchFinder::MatchResult& result) {
     // why??? it is so werid that if i use if-else statement, the check in else if will not be executed
     if(checks.find("dead-stores") != checks.end()) {
         checks["dead-stores"]->check(result);
@@ -26,12 +23,13 @@ void MyMatchCallback::run(const clang::ast_matchers::MatchFinder::MatchResult& r
     if(checks.find("loop-invariant") != checks.end()) {
         llvm::outs() << "loopinvariant is not found\n";
     }
+
 }
+
+
 
 void MyMatchCallback::onEndOfTranslationUnit() {
     for(auto&& [name, strategy] : checks) {
-        llvm::outs() << "Running check: " << name << "\n";
-
     }
 }
 

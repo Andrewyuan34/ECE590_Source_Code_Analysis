@@ -162,7 +162,6 @@ std::optional<bool> DeadStoreObserver::CheckVarDecl(const clang::VarDecl *VD, co
 }
 
 std::optional<bool> DeadStoresCheck::check(const clang::ast_matchers::MatchFinder::MatchResult& result){ 
-    
     if(auto funcDecl = result.Nodes.getNodeAs<clang::FunctionDecl>("funcDecl")) {
         clang::ASTContext *astContext = result.Context;
         clang::Stmt *funcBody = funcDecl->getBody();

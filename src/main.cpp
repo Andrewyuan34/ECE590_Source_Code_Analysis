@@ -13,6 +13,7 @@
 #include "CheckStrategies.h"
 #include "DeadStoresCheck.h"
 #include "UnreachableCodeCheck.h"
+#include "LoopInvariantCheck.h"
 
 namespace ct = clang::tooling;
 namespace cam = clang::ast_matchers;
@@ -35,7 +36,7 @@ std::unique_ptr<CheckStrategy> getStrategy(const std::string& type) {
     } else if(type == "uninitialized-variable") {
         return nullptr;
     } else if(type == "loop-invariant") {
-        return nullptr;
+        return std::make_unique<LoopInvariantCheck>("loop-invariant");
     }else {
         llvm::errs() << "Unknown matcher type: " << type << "\n";
         return nullptr;
@@ -186,4 +187,7 @@ Next: Considering using thread pool to speed up the analysis process.
 
 11.9 update:
 1. Use BFS to achieve the core algorithm of UnreachableCodeCheck class. Need to test the logic and make sure it works correctly.
+
+11.13 update:
+1. Just a basic framework for the LoopInvariantCheck. The next step is to implement the check method to find the loop invariant in the for loop.
 */

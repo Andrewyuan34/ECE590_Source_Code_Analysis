@@ -2,12 +2,17 @@
 
 int foo() {
     int x = 10;  // Dead store, as 'x' is assigned but never used
+    int a = 0;   // Uninitialized variable
     while(x--) {
         x = 20;  // Another dead store, overwrites previous value without use
-        int a = 0;
+        x = a;
+        while(a--) {
+            a = 20;
+            x = 30;
+        }
     }
 
-    return x;
+    return 10;
 }
 
 int bar(int f) {
@@ -36,6 +41,11 @@ int main() {
     int b;
 
     int c = 30;
+
+    for(int i = 0; i < 10; i++) {
+        b = 20;  // Dead store, as 'b' is assigned but never used
+        c = 40;
+    }
 /*
     while(a < 10) {
         a = 20;  // Dead store, overwrites previous value without use

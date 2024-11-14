@@ -17,7 +17,7 @@ public:
 typedef llvm::SmallSet<unsigned, 32> CFG_Set;
 
 UnreachableCodeCheck(const std::string& name) : CheckStrategy(name) {
-    unreachableBlocks.reserve(8);    
+    unreachableBlocks.reserve(16);    
 }
 
 MatchersList getMatchers() const final {

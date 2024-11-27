@@ -2,14 +2,10 @@
 
 int foo() {
     int x = 10;  // Dead store, as 'x' is assigned but never used
-    int a = 0;   // Uninitialized variable
-    while(x--) {
+    int a = 5;   // Uninitialized variable
+    while(a--) {
         x = 20;  // Another dead store, overwrites previous value without use
-        x = a;
-        while(a--) {
-            a = 20;
-            x = 30;
-        }
+        a = x;
     }
 
     return 10;

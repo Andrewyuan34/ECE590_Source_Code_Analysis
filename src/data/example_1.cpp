@@ -4,8 +4,9 @@ int foo() {
     int x = 10;  // Dead store, as 'x' is assigned but never used
     int a = 5;   // Uninitialized variable
     while(a--) {
-        x = 20;  // Another dead store, overwrites previous value without use
+        //x = 20;  // Another dead store, overwrites previous value without use
         a = x;
+        x += 10;
     }
 
     return 10;

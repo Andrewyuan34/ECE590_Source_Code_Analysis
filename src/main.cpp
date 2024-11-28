@@ -190,4 +190,7 @@ Next: Considering using thread pool to speed up the analysis process.
 
 11.13 update:
 1. Just a basic framework for the LoopInvariantCheck. The next step is to implement the check method to find the loop invariant in the for loop.
+
+11.28 update:
+Refine this class by adding more detailed logic to find the loop invariant in the for loop, while loop and do while loop.
 */

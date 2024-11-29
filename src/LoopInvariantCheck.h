@@ -1,8 +1,15 @@
 #pragma once
 
 #include "CheckStrategies.h"
-#include "clang/ASTMatchers/ASTMatchers.h"
-#include "clang/ASTMatchers/ASTMatchFinder.h"
+#include <set>
+
+bool isComparisonOperator(clang::BinaryOperator* BO) {
+    static const std::set<clang::BinaryOperatorKind> comparisonOps = {
+        clang::BO_EQ, clang::BO_NE, clang::BO_LT, 
+        clang::BO_GT, clang::BO_LE, clang::BO_GE
+    };
+    return comparisonOps.find(BO->getOpcode()) != comparisonOps.end();
+}
 
 class LoopInvariantCheck : public CheckStrategy {
 public:
@@ -21,7 +28,7 @@ std::optional<bool> check(const clang::ast_matchers::MatchFinder::MatchResult& r
 
 private:
 void analyzeStmt(const clang::Stmt *S, const clang::ast_matchers::MatchFinder::MatchResult &result);
-bool isLoopInvariant(const clang::Stmt *E, const clang::Stmt *LoopBody);
+bool isLoopInvariant(const clang::Stmt *E, const clang::Stmt *LoopBody, const clang::ast_matchers::MatchFinder::MatchResult &result);
 bool isModifiedInLoop(const clang::VarDecl *VD, const clang::Stmt *LoopBody);
 std::optional<bool> reportLoopInvariant(const clang::Stmt *S, const clang::ast_matchers::MatchFinder::MatchResult &result) const;
 };
@@ -64,23 +71,37 @@ void LoopInvariantCheck::analyzeStmt(const clang::Stmt *S, const clang::ast_matc
         if (!Child) continue;
 
         // Check loop invariant expressions
-        if (isLoopInvariant(Child, S)) {
+        if (isLoopInvariant(Child, S, result)) {
             reportLoopInvariant(Child, result);
         }
     }
 }
 
-bool LoopInvariantCheck::isLoopInvariant(const clang::Stmt *S, const clang::Stmt *LoopBody) {
+// Assume all unary operators will result in changes to the variable 
+bool LoopInvariantCheck::isLoopInvariant(const clang::Stmt *S, const clang::Stmt *LoopBody, const clang::ast_matchers::MatchFinder::MatchResult &result) {
     // Only handle binary operators for now
     if(const clang::BinaryOperator* B = llvm::dyn_cast<clang::BinaryOperator>(S)){
-        if (!B->isAssignmentOp() || B->isCompoundAssignmentOp()) return false; 
-
-        // Check if the expression is a constant
         const clang::Expr* RHS = B->getRHS();
-        if (llvm::isa<clang::IntegerLiteral>(RHS) ||
-            llvm::isa<clang::FloatingLiteral>(RHS) ||
-            llvm::isa<clang::CharacterLiteral>(RHS)) {
-            return true;
+    
+
+        if (B->getLHS()->isModifiableLvalue(*result.Context)) {
+            return false;
+        }
+
+        if (B->getOpcode() == clang::BO_Assign){ // Handle situations for assignment operators
+            // Check if the expression is a constant
+            if (llvm::isa<clang::IntegerLiteral>(RHS) ||
+                llvm::isa<clang::FloatingLiteral>(RHS) ||
+                llvm::isa<clang::CharacterLiteral>(RHS)) {
+                llvm::outs() << "Found a constant\n";
+                return true;
+            }
+        }
+
+        // Check if RHS is a CXXStaticCastExpr
+        if (const clang::CXXStaticCastExpr *SCE = llvm::dyn_cast<clang::CXXStaticCastExpr>(RHS)) {
+            // If it's a static cast, get the subexpression
+            RHS = SCE->getSubExpr();
         }
 
         // Check if RHS is a DeclRefExpr, handling possible implicit casts
@@ -90,17 +111,17 @@ bool LoopInvariantCheck::isLoopInvariant(const clang::Stmt *S, const clang::Stmt
         }
 
         if (const clang::DeclRefExpr* DRE = llvm::dyn_cast<clang::DeclRefExpr>(RHS)) {
+            if(!RHS->isModifiableLvalue(*result.Context)) return true;
+                
             // Check if the variable is not modified in the loop and only handle situation for VarDecl
             const clang::VarDecl *VD = llvm::dyn_cast<clang::VarDecl>(DRE->getDecl());
-            if (VD && !isModifiedInLoop(VD, LoopBody)) { // No explicit check for VD
-                return true; 
-            }
-            return false; 
+            if ((VD && !isModifiedInLoop(VD, LoopBody))) return true;   // No explicit check for VD      
         }
+
     }
-    
+
     for (const clang::Stmt *Child : S->children()) {
-        if (!isLoopInvariant(Child, LoopBody)) {
+        if (!isLoopInvariant(Child, LoopBody, result)) {
             return false;
         }
     }
@@ -110,6 +131,8 @@ bool LoopInvariantCheck::isLoopInvariant(const clang::Stmt *S, const clang::Stmt
 }
 
 
+
+// Return true if the variable is modified in the loop(Only handle limited cases)
 bool LoopInvariantCheck::isModifiedInLoop(const clang::VarDecl *VD, const clang::Stmt *LoopBody) {
     // Traverse the loop body to find modifications to the variable
     for (const clang::Stmt* Child : LoopBody->children()) {
@@ -121,9 +144,9 @@ bool LoopInvariantCheck::isModifiedInLoop(const clang::VarDecl *VD, const clang:
                 BO->getOpcode() == clang::BO_GT ||
                 BO->getOpcode() == clang::BO_LE ||
                 BO->getOpcode() == clang::BO_GE) {
-                if (const clang::DeclRefExpr *LHS = llvm::dyn_cast<clang::DeclRefExpr>(BO->getLHS())) {
+                if (const clang::DeclRefExpr* LHS = llvm::dyn_cast<clang::DeclRefExpr>(BO->getLHS())) {
                     if (LHS->getDecl() == VD) {
-                        return false;  
+                        return true;  
                     }
                 }
             }
@@ -186,4 +209,7 @@ Initial idea is to find the loop invariant by checking different loop(for loop, 
 
 11.28 Update:
 Refine this class by adding more detailed logic to find the loop invariant in the for loop, while loop and do while loop.
+
+11.29 Update:
+Add more detailed logic to find the loop invariant, add a helper function to check if the variable is modified in the loop.
 */

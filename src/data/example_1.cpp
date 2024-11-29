@@ -6,7 +6,11 @@ int foo() {
     while(a--) {
         //x = 20;  // Another dead store, overwrites previous value without use
         a = x;
-        x += 10;
+        x += static_cast<int>(a);
+        if(x > 10) {
+            x = 10;
+        }
+        
     }
 
     return 10;
@@ -42,6 +46,7 @@ int main() {
     for(int i = 0; i < 10; i++) {
         b = 20;  // Dead store, as 'b' is assigned but never used
         c = 40;
+        
     }
 /*
     while(a < 10) {
@@ -52,7 +57,7 @@ int main() {
 
     //b = bar(a); 
     //std::cout << "Hello, World!" << std::endl;
-    b = 30;
+    b = 30; 
     c = b;
     return 0;
 }

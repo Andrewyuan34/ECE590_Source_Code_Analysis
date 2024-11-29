@@ -2,6 +2,7 @@
 
 #include <clang/ASTMatchers/ASTMatchers.h>
 #include <clang/ASTMatchers/Dynamic/VariantValue.h>
+#include "clang/ASTMatchers/ASTMatchFinder.h"
 #include <vector>
 #include <optional>
 

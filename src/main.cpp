@@ -88,7 +88,7 @@ public:
             auto strategy = getStrategy(check);
             if (strategy) {
                 for (const auto& matcher : strategy->getMatchers()) {
-                    if(!matchFinder->addDynamicMatcher(
+                    if(!matchFinder->addDynamicMatcher( // TK_IgnoreUnlessSpelledInSource is used to ignore implicit nodes记得开！
                         *traverse(clAsIs ? clang::TK_AsIs : clang::TK_IgnoreUnlessSpelledInSource, matcher).getSingleMatcher(),
                         matchCallback.get()
                     )) {

@@ -11,7 +11,7 @@ int foo() {
             x = 10;
         }
         ++a;
-        !a;
+        //!a;
         
     }
 
@@ -24,6 +24,7 @@ int bar(int f) {
     y = 10;
     while(y--) {
         y = 20;
+        y = f;
     }
 }
 
@@ -48,14 +49,12 @@ int main() {
     for(int i = 0; i < 10; i++) {
         b = 20;  // Dead store, as 'b' is assigned but never used
         c = 40;
-        
     }
-/*
     while(a < 10) {
         a = 20;  // Dead store, overwrites previous value without use
         b = 30;
         c = 40;
-    }*/
+    }
 
     //b = bar(a); 
     //std::cout << "Hello, World!" << std::endl;
@@ -63,7 +62,6 @@ int main() {
     c = b;
     return 0;
 }
-
 /*
 So the essence of checking dead store is: In a funcion, you can only detect them when they have condition control flow otherwise the CFG will only generate 
 one block for the whole function.

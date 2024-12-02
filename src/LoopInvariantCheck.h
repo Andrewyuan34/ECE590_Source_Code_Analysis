@@ -55,12 +55,11 @@ std::optional<bool> LoopInvariantCheck::check(const clang::ast_matchers::MatchFi
         } else if (const clang::DoStmt* DoLoop = llvm::dyn_cast<clang::DoStmt>(S)) {
             llvm::outs() << "Found a do-while loop\n";
             processBody(DoLoop->getBody());  
-
-        return true;
         } else {
             llvm::outs() << "No loop found\n";
             return false;
         }
+        return true;
     }
     return std::nullopt;
 }
@@ -78,18 +77,46 @@ void LoopInvariantCheck::analyzeStmt(const clang::Stmt *S, const clang::ast_matc
     }
 }
 
+/*
+void LoopInvariantCheck::analyzeStmt(const clang::Stmt *S, const clang::ast_matchers::MatchFinder::MatchResult &result) {
+    // Hashtable to maintain information about loop invariants
+    std::unordered_map<const clang::Stmt *, std::string> loopInvariantInfo;
+
+    for (const clang::Stmt *Child : S->children()) {
+        if (!Child) continue;
+
+        // Check loop invariant expressions
+        if (isLoopInvariant(Child, S, result)) {
+            // Maintain information in the hashtable if the check is true
+            loopInvariantInfo[Child] = "Invariant detected";
+        } else {
+            // Modify the hashtable when isLoopInvariant returns false
+            loopInvariantInfo.erase(Child);
+        }
+    }
+
+    // Output the information from the hashtable
+    llvm::outs() << "Loop Invariant Information:\n";
+    for (const auto &entry : loopInvariantInfo) {
+        llvm::outs() << "Stmt: " << entry.first << " - Info: " << entry.second << "\n";
+    }
+}
+
+这部分后面再改进去，先把最重要的逻辑给改完
+*/
+
 // Assume all unary operators will result in changes to the variable 
 bool LoopInvariantCheck::isLoopInvariant(const clang::Stmt *S, const clang::Stmt *LoopBody, const clang::ast_matchers::MatchFinder::MatchResult &result) {
     // Only handle binary operators for now
     if(const clang::BinaryOperator* B = llvm::dyn_cast<clang::BinaryOperator>(S)){
         const clang::Expr* RHS = B->getRHS();
     
-
         if (B->getLHS()->isModifiableLvalue(*result.Context)) {
             return false;
         }
 
-        if (B->getOpcode() == clang::BO_Assign){ // Handle situations for assignment operators
+        // Only handle situations for assignment operators
+        if (B->getOpcode() == clang::BO_Assign){ 
             // Check if the expression is a constant
             if (llvm::isa<clang::IntegerLiteral>(RHS) ||
                 llvm::isa<clang::FloatingLiteral>(RHS) ||
@@ -97,16 +124,24 @@ bool LoopInvariantCheck::isLoopInvariant(const clang::Stmt *S, const clang::Stmt
                 llvm::outs() << "Found a constant\n";
                 return true;
             }
+
+            // Check if RHS is a CXXStaticCastExpr
+            if (const clang::CXXStaticCastExpr *SCE = llvm::dyn_cast<clang::CXXStaticCastExpr>(RHS)) {
+                // If it's a static cast, get the subexpression
+                RHS = SCE->getSubExpr();
+            }
+
+            // 这里存在ImplicitCastExpr无法被过滤掉，需要进一步处理！！！！！！！！！！！！！！！！！！这里暂时先处理一下
+            if(const clang::ImplicitCastExpr* ICE = llvm::dyn_cast<clang::ImplicitCastExpr>(RHS)) {
+                RHS = ICE->getSubExpr();
+            }
+
+            //Only return true if the function is true, otherwise jump and do nothing
+
+            if(isRightOperandInvariant(RHS, LoopBody, result)) {
+                return true; 
+            }
         }
-
-        // Check if RHS is a CXXStaticCastExpr
-        if (const clang::CXXStaticCastExpr *SCE = llvm::dyn_cast<clang::CXXStaticCastExpr>(RHS)) {
-            // If it's a static cast, get the subexpression
-            RHS = SCE->getSubExpr();
-        }
-
-        return isRightOperandInvariant(RHS, LoopBody, result);
-
     }
 
     for (const clang::Stmt *Child : S->children()) {
@@ -123,6 +158,8 @@ bool LoopInvariantCheck::isLoopInvariant(const clang::Stmt *S, const clang::Stmt
 
 // Return true if the variable is modified in the loop(Only handle limited cases)
 bool LoopInvariantCheck::isModifiedInLoop(const clang::VarDecl *VD, const clang::Stmt *LoopBody, const clang::ast_matchers::MatchFinder::MatchResult &result) {
+
+    llvm::outs() << "Checking if the variable is modified in the loop\n";
     // Traverse the loop body to find modifications to the variable
     for (const clang::Stmt* Child : LoopBody->children()) {
         if (const clang::BinaryOperator* BO = llvm::dyn_cast<clang::BinaryOperator>(Child)) {
@@ -135,6 +172,7 @@ bool LoopInvariantCheck::isModifiedInLoop(const clang::VarDecl *VD, const clang:
                 }
             }
 
+            llvm::outs() << "Found a binary operator\n";//sssssssssssssssssssssssssssss
             if (BO->getOpcode() == clang::BO_Assign) {
                 if (const clang::DeclRefExpr *LHS = llvm::dyn_cast<clang::DeclRefExpr>(BO->getLHS())) {
                     if (LHS->getDecl() == VD) {
@@ -152,6 +190,7 @@ bool LoopInvariantCheck::isModifiedInLoop(const clang::VarDecl *VD, const clang:
             if (UO->isIncrementDecrementOp() || UO->isArithmeticOp()) { // isIncrementDecrementOp() is used to check if the operator is ++ or --, isArithmeticOp() is used to check if the operator is + - ~ or !
                 if (const clang::DeclRefExpr* Operand  = llvm::dyn_cast<clang::DeclRefExpr>(UO->getSubExpr())) {
                     if (Operand->getDecl() == VD) {
+                        llvm::outs() << "Found a unary operator1\n";
                         return true;
                     }
                 }
@@ -194,7 +233,7 @@ bool LoopInvariantCheck::isRightOperandInvariant(const clang::Expr *RHS, const c
         // 判断是否是 VarDecl
         if (const clang::VarDecl *VD = llvm::dyn_cast<clang::VarDecl>(DRE->getDecl())) {
             // 如果变量没有在循环中被修改，则认为右操作数是 loop-invariant
-            return !isModifiedInLoop(VD, LoopBody, result);
+            if(!isModifiedInLoop(VD, LoopBody, result)) return true;
         }
     }
 
@@ -221,4 +260,10 @@ Add more detailed logic to find the loop invariant, add a helper function to che
 
 12.1 Update:
 Further refine the logic to find the loop invariant in this class. Need to test the logic and make sure it works correctly.
+
+12.2 Update:
+Problem: 
+1.How to properly handle the situation where the nested ImplicitCastExpr automatically generated by the compiler.
+2.How to handle circular checking?
+3.Func "analyzeStmt" waiting to be reimplmented.
 */
